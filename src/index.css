@@ -1,0 +1,146 @@
+@import "tailwindcss";
+
+:root {
+  --color-brand-primary: #2563eb;
+  --color-brand-primary-rgb: 37, 99, 235;
+  --color-brand-primary-hover: #1d4ed8;
+  --color-brand-primary-light: #eff6ff;
+  --color-brand-primary-border: #bfdbfe;
+  --color-brand-primary-text: #ffffff;
+
+  --color-brand-secondary: #0ea5e9;
+  --color-brand-secondary-rgb: 14, 165, 233;
+  --color-brand-secondary-hover: #0284c7;
+  --color-brand-secondary-light: #f0f9ff;
+  --color-brand-secondary-border: #bae6fd;
+  --color-brand-secondary-text: #ffffff;
+
+  --color-brand-accent: #38bdf8;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  html.dark body {
+    background-color: #0b0f19;
+    color: #f1f5f9;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: 'Outfit', 'Plus Jakarta Sans', system-ui, sans-serif;
+  }
+}
+
+/* Dynamic Brand Utility Classes driven by CSS Variables */
+.bg-brand-primary {
+  background-color: var(--color-brand-primary) !important;
+  color: var(--color-brand-primary-text) !important;
+}
+
+.bg-brand-primary-hover:hover {
+  background-color: var(--color-brand-primary-hover) !important;
+}
+
+.bg-brand-primary-light {
+  background-color: var(--color-brand-primary-light) !important;
+}
+
+.dark .bg-brand-primary-light {
+  background-color: rgba(var(--color-brand-primary-rgb), 0.15) !important;
+  color: #93c5fd !important;
+}
+
+.text-brand-primary {
+  color: var(--color-brand-primary) !important;
+}
+
+.border-brand-primary {
+  border-color: var(--color-brand-primary) !important;
+}
+
+.border-brand-primary-light {
+  border-color: var(--color-brand-primary-border) !important;
+}
+
+.dark .border-brand-primary-light {
+  border-color: rgba(var(--color-brand-primary-rgb), 0.3) !important;
+}
+
+.ring-brand-primary:focus {
+  --tw-ring-color: var(--color-brand-primary) !important;
+}
+
+.bg-brand-secondary {
+  background-color: var(--color-brand-secondary) !important;
+  color: var(--color-brand-secondary-text) !important;
+}
+
+.bg-brand-secondary-light {
+  background-color: var(--color-brand-secondary-light) !important;
+}
+
+.dark .bg-brand-secondary-light {
+  background-color: rgba(var(--color-brand-secondary-rgb), 0.15) !important;
+  color: #7dd3fc !important;
+}
+
+.text-brand-secondary {
+  color: var(--color-brand-secondary) !important;
+}
+
+.border-brand-secondary {
+  border-color: var(--color-brand-secondary) !important;
+}
+
+.shadow-brand-primary {
+  box-shadow: 0 4px 14px -2px rgba(var(--color-brand-primary-rgb), 0.35);
+}
+
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .page-break-inside-avoid {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  @page {
+    margin: 1.2cm;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}

@@ -1,0 +1,6 @@
+{
+  "name": "ClinicFlow Pro",
+  "description": "Sistema SaaS Multi-Tenant de Gestão para Clínicas de Fisioterapia, Pilates e Estética com Prontuário Eletrônico, Agendamentos, Financeiro e PWA.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
