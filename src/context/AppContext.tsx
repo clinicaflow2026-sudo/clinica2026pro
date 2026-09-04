@@ -7,6 +7,7 @@ import { cadastrosService, getCadastroService } from '../services/cadastrosServi
 import { medicalRecordService } from '../services/medicalRecordService';
 import { roomService } from '../services/roomService';
 import { chatService } from '../services/chatService';
+import { uploadDataUrlToStorage } from '../lib/storageService';
 import { getSupabaseClient } from '../lib/supabase';
 import {
   Tenant,
@@ -1058,14 +1059,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logAction('EVOLUTION_CREATED', 'Prontuário Eletrônico', `Evolução clínica assinada para paciente ID ${evoData.patientId}`);
 
     if (authTenant && getSupabaseClient()) {
-      medicalRecordService
-        .createEvolution(authTenant.id, evoData)
-        .then((saved) => setEvolutions((prev) => prev.map((e) => (e.id === tempId ? saved : e))))
-        .catch((err) => {
+      (async () => {
+        try {
+          let dataToSave: Omit<Evolution, 'id' | 'tenantId' | 'createdAt'> = evoData;
+          if (evoData.signature?.dataUrl?.startsWith('data:')) {
+            const url = await uploadDataUrlToStorage('assinaturas', `${authTenant.id}/evolution-${tempId}.png`, evoData.signature.dataUrl);
+            dataToSave = { ...evoData, signature: { ...evoData.signature, dataUrl: url } };
+          }
+          const saved = await medicalRecordService.createEvolution(authTenant.id, dataToSave);
+          setEvolutions((prev) => prev.map((e) => (e.id === tempId ? saved : e)));
+        } catch (err: any) {
           console.error('Erro ao salvar evolução no Supabase:', err);
           setEvolutions((prev) => prev.filter((e) => e.id !== tempId));
           logAction('MEDICAL_RECORD_SYNC_ERROR', 'Prontuário Eletrônico', `Falha ao sincronizar evolução: ${err.message}`);
-        });
+        }
+      })();
     }
   };
 
@@ -1081,14 +1089,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logAction('EVALUATION_CREATED', 'Prontuário Eletrônico', `Avaliação física salva (${evalData.category})`);
 
     if (authTenant && getSupabaseClient()) {
-      medicalRecordService
-        .createEvaluation(authTenant.id, evalData)
-        .then((saved) => setEvaluations((prev) => prev.map((e) => (e.id === tempId ? saved : e))))
-        .catch((err) => {
+      (async () => {
+        try {
+          let dataToSave: Omit<PhysicalEvaluation, 'id' | 'tenantId' | 'createdAt'> = evalData;
+          if (evalData.signature?.dataUrl?.startsWith('data:')) {
+            const url = await uploadDataUrlToStorage('assinaturas', `${authTenant.id}/evaluation-${tempId}.png`, evalData.signature.dataUrl);
+            dataToSave = { ...evalData, signature: { ...evalData.signature, dataUrl: url } };
+          }
+          const saved = await medicalRecordService.createEvaluation(authTenant.id, dataToSave);
+          setEvaluations((prev) => prev.map((e) => (e.id === tempId ? saved : e)));
+        } catch (err: any) {
           console.error('Erro ao salvar avaliação no Supabase:', err);
           setEvaluations((prev) => prev.filter((e) => e.id !== tempId));
           logAction('MEDICAL_RECORD_SYNC_ERROR', 'Prontuário Eletrônico', `Falha ao sincronizar avaliação: ${err.message}`);
-        });
+        }
+      })();
     }
   };
 
@@ -1104,14 +1119,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logAction('PRESCRIPTION_CREATED', 'Receituário', `Prescrição emitida para ${prescData.patientName}`);
 
     if (authTenant && getSupabaseClient()) {
-      medicalRecordService
-        .createPrescription(authTenant.id, prescData)
-        .then((saved) => setPrescriptions((prev) => prev.map((p) => (p.id === tempId ? saved : p))))
-        .catch((err) => {
+      (async () => {
+        try {
+          let dataToSave: Omit<Prescription, 'id' | 'tenantId' | 'createdAt'> = prescData;
+          if (prescData.signature?.dataUrl?.startsWith('data:')) {
+            const url = await uploadDataUrlToStorage('assinaturas', `${authTenant.id}/prescription-${tempId}.png`, prescData.signature.dataUrl);
+            dataToSave = { ...prescData, signature: { ...prescData.signature, dataUrl: url } };
+          }
+          const saved = await medicalRecordService.createPrescription(authTenant.id, dataToSave);
+          setPrescriptions((prev) => prev.map((p) => (p.id === tempId ? saved : p)));
+        } catch (err: any) {
           console.error('Erro ao salvar prescrição no Supabase:', err);
           setPrescriptions((prev) => prev.filter((p) => p.id !== tempId));
           logAction('MEDICAL_RECORD_SYNC_ERROR', 'Receituário', `Falha ao sincronizar prescrição: ${err.message}`);
-        });
+        }
+      })();
     }
   };
 
@@ -1127,14 +1149,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logAction('CONSENT_TERM_SIGNED', 'Prontuário / TCLE', `Termo de Consentimento assinado digitalmente por ${termData.patientName} (${termData.title})`);
 
     if (authTenant && getSupabaseClient()) {
-      medicalRecordService
-        .createConsentTerm(authTenant.id, termData)
-        .then((saved) => setConsentTerms((prev) => prev.map((t) => (t.id === tempId ? saved : t))))
-        .catch((err) => {
+      (async () => {
+        try {
+          let dataToSave: Omit<PatientConsentTerm, 'id' | 'tenantId' | 'createdAt'> = termData;
+          if (termData.patientSignature?.dataUrl?.startsWith('data:')) {
+            const url = await uploadDataUrlToStorage('assinaturas', `${authTenant.id}/consent-${tempId}-patient.png`, termData.patientSignature.dataUrl);
+            dataToSave = { ...dataToSave, patientSignature: { ...termData.patientSignature, dataUrl: url } };
+          }
+          if (termData.professionalSignature?.dataUrl?.startsWith('data:')) {
+            const url = await uploadDataUrlToStorage('assinaturas', `${authTenant.id}/consent-${tempId}-professional.png`, termData.professionalSignature.dataUrl);
+            dataToSave = { ...dataToSave, professionalSignature: { ...termData.professionalSignature, dataUrl: url } };
+          }
+          const saved = await medicalRecordService.createConsentTerm(authTenant.id, dataToSave);
+          setConsentTerms((prev) => prev.map((t) => (t.id === tempId ? saved : t)));
+        } catch (err: any) {
           console.error('Erro ao salvar termo de consentimento no Supabase:', err);
           setConsentTerms((prev) => prev.filter((t) => t.id !== tempId));
           logAction('MEDICAL_RECORD_SYNC_ERROR', 'Prontuário / TCLE', `Falha ao sincronizar termo de consentimento: ${err.message}`);
-        });
+        }
+      })();
     }
   };
 
