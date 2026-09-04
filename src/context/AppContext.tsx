@@ -3,6 +3,7 @@ import { useAuth } from './AuthContext';
 import { patientService } from '../services/patientService';
 import { appointmentService } from '../services/appointmentService';
 import { financialService } from '../services/financialService';
+import { cadastrosService, getCadastroService } from '../services/cadastrosService';
 import { getSupabaseClient } from '../lib/supabase';
 import {
   Tenant,
@@ -557,6 +558,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_TECHNICAL_ASSISTANCE;
   });
 
+  // Fase 4 (Cadastros gerais): mesmo padrão dos módulos anteriores. Salas
+  // ficam de fora daqui (service próprio, fase separada); users/tenants
+  // também (dependem de Supabase Auth, não só da tabela).
+  useEffect(() => {
+    if (!authTenant || !getSupabaseClient()) return;
+    let active = true;
+    Promise.all([
+      cadastrosService.specialties.list(authTenant.id),
+      cadastrosService.professionals.list(authTenant.id),
+      cadastrosService.procedures.list(authTenant.id),
+      cadastrosService.healthInsurances.list(authTenant.id),
+      cadastrosService.packages.list(authTenant.id),
+      cadastrosService.products.list(authTenant.id),
+      cadastrosService.productCategories.list(authTenant.id),
+      cadastrosService.unitsOfMeasure.list(authTenant.id),
+      cadastrosService.suppliers.list(authTenant.id),
+      cadastrosService.equipment.list(authTenant.id),
+      cadastrosService.technicalAssistance.list(authTenant.id),
+    ])
+      .then(
+        ([
+          remoteSpecialties,
+          remoteProfessionals,
+          remoteProcedures,
+          remoteHealthInsurances,
+          remotePackages,
+          remoteProducts,
+          remoteProductCategories,
+          remoteUnitsOfMeasure,
+          remoteSuppliers,
+          remoteEquipment,
+          remoteTechnicalAssistance,
+        ]) => {
+          if (!active) return;
+          setSpecialties(remoteSpecialties);
+          setProfessionals(remoteProfessionals);
+          setProcedures(remoteProcedures);
+          setHealthInsurances(remoteHealthInsurances);
+          setPackages(remotePackages);
+          setProducts(remoteProducts);
+          setProductCategories(remoteProductCategories);
+          setUnitsOfMeasure(remoteUnitsOfMeasure);
+          setSuppliers(remoteSuppliers);
+          setEquipment(remoteEquipment);
+          setTechnicalAssistance(remoteTechnicalAssistance);
+        }
+      )
+      .catch((err) => console.error('Erro ao carregar cadastros gerais do Supabase:', err));
+    return () => {
+      active = false;
+    };
+  }, [authTenant?.id]);
+
   const [messages, setMessages] = useState<InternalMessage[]>(() => {
     const saved = localStorage.getItem('cfp_messages');
     return saved ? JSON.parse(saved) : INITIAL_MESSAGES;
@@ -1031,7 +1085,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  /** Mapeia as 4 coleções de cadastro financeiro (accounts/costCenters/financialCategories/paymentMethods) para o sub-CRUD certo do financialService. Usado pelos dispatchers genéricos de cadastro abaixo. */
+  /**
+   * Resolve o service real (Supabase) por trás de uma coleção de cadastro,
+   * cobrindo tanto as 4 financeiras quanto as 11 de "Cadastros gerais".
+   * Retorna null para coleções ainda não migradas (rooms tem service
+   * próprio/fase separada; users/tenants dependem de Supabase Auth).
+   */
+  const getPersistedCadastroService = (collection: string) => getFinancialCadastroService(collection) || getCadastroService(collection);
+
   const getFinancialCadastroService = (collection: string) => {
     switch (collection) {
       case 'accounts':
@@ -1045,6 +1106,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       default:
         return null;
     }
+  };
+
+  /** Setter de estado do React para cada coleção com backend real (as mesmas 15 do resolvedor acima). */
+  const CADASTRO_SETTER_MAP: Record<string, React.Dispatch<React.SetStateAction<any[]>>> = {
+    accounts: setAccounts,
+    costCenters: setCostCenters,
+    financialCategories: setFinancialCategories,
+    paymentMethods: setPaymentMethods,
+    specialties: setSpecialties,
+    professionals: setProfessionals,
+    procedures: setProcedures,
+    healthInsurances: setHealthInsurances,
+    packages: setPackages,
+    products: setProducts,
+    productCategories: setProductCategories,
+    unitsOfMeasure: setUnitsOfMeasure,
+    suppliers: setSuppliers,
+    equipment: setEquipment,
+    technicalAssistance: setTechnicalAssistance,
   };
 
   // Generic Cadastros
@@ -1105,19 +1185,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     logAction('CADASTRO_CREATED', collection, `Novo item criado em ${collection}`);
 
-    // Das ~15 coleções acima, só as 4 financeiras já têm backend real nesta
-    // fase — as demais (specialties, rooms, products, etc.) continuam
-    // localStorage-only até o módulo Cadastros ser migrado.
-    const financialSvc = getFinancialCadastroService(collection);
-    if (financialSvc && authTenant && getSupabaseClient()) {
-      const setterMap: Record<string, React.Dispatch<React.SetStateAction<any[]>>> = {
-        accounts: setAccounts,
-        costCenters: setCostCenters,
-        financialCategories: setFinancialCategories,
-        paymentMethods: setPaymentMethods,
-      };
-      const setter = setterMap[collection];
-      financialSvc
+    // Das ~19 coleções acima, 15 já têm backend real nesta fase (financeiras
+    // + cadastros gerais) — rooms/users/tenants continuam à parte (ver nota
+    // no resolvedor acima).
+    const persistedSvc = getPersistedCadastroService(collection);
+    if (persistedSvc && authTenant && getSupabaseClient()) {
+      const setter = CADASTRO_SETTER_MAP[collection];
+      persistedSvc
         .create(authTenant.id, item)
         .then((saved: any) => {
           setter((prev: any[]) => prev.map((i) => (i.id === newItem.id ? saved : i)));
@@ -1193,9 +1267,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     logAction('CADASTRO_UPDATED', collection, `Item ${id} atualizado em ${collection}`);
 
-    const financialSvc = getFinancialCadastroService(collection);
-    if (financialSvc && authTenant && getSupabaseClient() && !id.startsWith(`${collection.slice(0, 3)}-`)) {
-      financialSvc.update(id, data).catch((err: Error) => {
+    const persistedSvc = getPersistedCadastroService(collection);
+    if (persistedSvc && authTenant && getSupabaseClient() && !id.startsWith(`${collection.slice(0, 3)}-`)) {
+      persistedSvc.update(id, data).catch((err: Error) => {
         console.error(`Erro ao atualizar ${collection} no Supabase:`, err);
         logAction('CADASTRO_SYNC_ERROR', collection, `Falha ao sincronizar atualização em ${collection} ID ${id}: ${err.message}`);
       });
@@ -1263,9 +1337,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     logAction('CADASTRO_DELETED', collection, `Item ${id} excluído em ${collection}`);
 
-    const financialSvc = getFinancialCadastroService(collection);
-    if (financialSvc && authTenant && getSupabaseClient() && !id.startsWith(`${collection.slice(0, 3)}-`)) {
-      financialSvc.remove(id, { hard }).catch((err: Error) => {
+    const persistedSvc = getPersistedCadastroService(collection);
+    if (persistedSvc && authTenant && getSupabaseClient() && !id.startsWith(`${collection.slice(0, 3)}-`)) {
+      persistedSvc.remove(id, { hard }).catch((err: Error) => {
         console.error(`Erro ao remover ${collection} no Supabase:`, err);
         logAction('CADASTRO_SYNC_ERROR', collection, `Falha ao sincronizar exclusão em ${collection} ID ${id}: ${err.message}`);
       });
