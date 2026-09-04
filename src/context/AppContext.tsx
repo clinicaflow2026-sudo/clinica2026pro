@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { patientService } from '../services/patientService';
 import { appointmentService } from '../services/appointmentService';
+import { financialService } from '../services/financialService';
 import { getSupabaseClient } from '../lib/supabase';
 import {
   Tenant,
@@ -499,6 +500,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_FINANCIAL_ENTRIES;
   });
 
+  // Fase 4 (Financeiro): mesmo padrão dos módulos anteriores — com sessão
+  // real, contas, centros de custo, categorias, formas de pagamento e
+  // lançamentos passam a vir do Supabase.
+  useEffect(() => {
+    if (!authTenant || !getSupabaseClient()) return;
+    let active = true;
+    Promise.all([
+      financialService.accounts.list(authTenant.id),
+      financialService.costCenters.list(authTenant.id),
+      financialService.categories.list(authTenant.id),
+      financialService.paymentMethods.list(authTenant.id),
+      financialService.listEntries(authTenant.id),
+    ])
+      .then(([remoteAccounts, remoteCostCenters, remoteCategories, remoteMethods, remoteEntries]) => {
+        if (!active) return;
+        setAccounts(remoteAccounts);
+        setCostCenters(remoteCostCenters);
+        setFinancialCategories(remoteCategories);
+        setPaymentMethods(remoteMethods);
+        setFinancialEntries(remoteEntries);
+      })
+      .catch((err) => console.error('Erro ao carregar dados financeiros do Supabase:', err));
+    return () => {
+      active = false;
+    };
+  }, [authTenant?.id]);
+
   const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('cfp_products');
     return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
@@ -955,24 +983,68 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Financial Actions
   const addFinancialEntry = (entryData: Omit<FinancialEntry, 'id' | 'tenantId' | 'status'> & { status?: 'paid' | 'pending' | 'overdue' }) => {
+    const tempId = `fin-${Date.now()}`;
     const newEntry: FinancialEntry = {
       ...entryData,
-      id: `fin-${Date.now()}`,
+      id: tempId,
       tenantId: activeTenant.id,
       status: entryData.status || 'pending',
     };
     setFinancialEntries((prev) => [newEntry, ...prev]);
     logAction('FINANCIAL_ENTRY_CREATED', 'Gestor Financeiro', `Lançamento ${newEntry.type === 'income' ? 'Receita' : 'Despesa'}: ${newEntry.description} (R$ ${newEntry.amount.toFixed(2)})`);
+
+    if (authTenant && getSupabaseClient()) {
+      financialService
+        .createEntry(authTenant.id, entryData as Partial<FinancialEntry>)
+        .then((saved) => {
+          setFinancialEntries((prev) => prev.map((e) => (e.id === tempId ? saved : e)));
+        })
+        .catch((err) => {
+          console.error('Erro ao salvar lançamento financeiro no Supabase:', err);
+          setFinancialEntries((prev) => prev.filter((e) => e.id !== tempId));
+          logAction('FINANCIAL_SYNC_ERROR', 'Gestor Financeiro', `Falha ao sincronizar lançamento ${newEntry.description}: ${err.message}`);
+        });
+    }
   };
 
   const updateFinancialEntry = (id: string, data: Partial<FinancialEntry>) => {
     setFinancialEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...data } : e)));
     logAction('FINANCIAL_ENTRY_UPDATED', 'Gestor Financeiro', `Atualizou lançamento financeiro ID ${id}`);
+
+    if (authTenant && getSupabaseClient() && !id.startsWith('fin-')) {
+      financialService.updateEntry(id, data).catch((err) => {
+        console.error('Erro ao atualizar lançamento financeiro no Supabase:', err);
+        logAction('FINANCIAL_SYNC_ERROR', 'Gestor Financeiro', `Falha ao sincronizar atualização do lançamento ID ${id}: ${err.message}`);
+      });
+    }
   };
 
   const deleteFinancialEntry = (id: string) => {
     setFinancialEntries((prev) => prev.filter((e) => e.id !== id));
     logAction('FINANCIAL_ENTRY_DELETED', 'Gestor Financeiro', `Excluiu lançamento financeiro ID ${id}`);
+
+    if (authTenant && getSupabaseClient() && !id.startsWith('fin-')) {
+      financialService.removeEntry(id, { hard: true }).catch((err) => {
+        console.error('Erro ao remover lançamento financeiro no Supabase:', err);
+        logAction('FINANCIAL_SYNC_ERROR', 'Gestor Financeiro', `Falha ao sincronizar exclusão do lançamento ID ${id}: ${err.message}`);
+      });
+    }
+  };
+
+  /** Mapeia as 4 coleções de cadastro financeiro (accounts/costCenters/financialCategories/paymentMethods) para o sub-CRUD certo do financialService. Usado pelos dispatchers genéricos de cadastro abaixo. */
+  const getFinancialCadastroService = (collection: string) => {
+    switch (collection) {
+      case 'accounts':
+        return financialService.accounts;
+      case 'costCenters':
+        return financialService.costCenters;
+      case 'financialCategories':
+        return financialService.categories;
+      case 'paymentMethods':
+        return financialService.paymentMethods;
+      default:
+        return null;
+    }
   };
 
   // Generic Cadastros
@@ -1032,6 +1104,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         break;
     }
     logAction('CADASTRO_CREATED', collection, `Novo item criado em ${collection}`);
+
+    // Das ~15 coleções acima, só as 4 financeiras já têm backend real nesta
+    // fase — as demais (specialties, rooms, products, etc.) continuam
+    // localStorage-only até o módulo Cadastros ser migrado.
+    const financialSvc = getFinancialCadastroService(collection);
+    if (financialSvc && authTenant && getSupabaseClient()) {
+      const setterMap: Record<string, React.Dispatch<React.SetStateAction<any[]>>> = {
+        accounts: setAccounts,
+        costCenters: setCostCenters,
+        financialCategories: setFinancialCategories,
+        paymentMethods: setPaymentMethods,
+      };
+      const setter = setterMap[collection];
+      financialSvc
+        .create(authTenant.id, item)
+        .then((saved: any) => {
+          setter((prev: any[]) => prev.map((i) => (i.id === newItem.id ? saved : i)));
+        })
+        .catch((err: Error) => {
+          console.error(`Erro ao salvar ${collection} no Supabase:`, err);
+          setter((prev: any[]) => prev.filter((i) => i.id !== newItem.id));
+          logAction('CADASTRO_SYNC_ERROR', collection, `Falha ao sincronizar novo item em ${collection}: ${err.message}`);
+        });
+    }
   };
 
   const updateGenericItem = (collection: string, id: string, data: any) => {
@@ -1096,6 +1192,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         break;
     }
     logAction('CADASTRO_UPDATED', collection, `Item ${id} atualizado em ${collection}`);
+
+    const financialSvc = getFinancialCadastroService(collection);
+    if (financialSvc && authTenant && getSupabaseClient() && !id.startsWith(`${collection.slice(0, 3)}-`)) {
+      financialSvc.update(id, data).catch((err: Error) => {
+        console.error(`Erro ao atualizar ${collection} no Supabase:`, err);
+        logAction('CADASTRO_SYNC_ERROR', collection, `Falha ao sincronizar atualização em ${collection} ID ${id}: ${err.message}`);
+      });
+    }
   };
 
   const deleteGenericItem = (collection: string, id: string, hard = false) => {
@@ -1158,6 +1262,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         break;
     }
     logAction('CADASTRO_DELETED', collection, `Item ${id} excluído em ${collection}`);
+
+    const financialSvc = getFinancialCadastroService(collection);
+    if (financialSvc && authTenant && getSupabaseClient() && !id.startsWith(`${collection.slice(0, 3)}-`)) {
+      financialSvc.remove(id, { hard }).catch((err: Error) => {
+        console.error(`Erro ao remover ${collection} no Supabase:`, err);
+        logAction('CADASTRO_SYNC_ERROR', collection, `Falha ao sincronizar exclusão em ${collection} ID ${id}: ${err.message}`);
+      });
+    }
   };
 
   // Internal Messaging
