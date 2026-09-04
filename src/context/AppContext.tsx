@@ -7,7 +7,8 @@ import { cadastrosService, getCadastroService } from '../services/cadastrosServi
 import { medicalRecordService } from '../services/medicalRecordService';
 import { roomService } from '../services/roomService';
 import { chatService } from '../services/chatService';
-import { uploadDataUrlToStorage } from '../lib/storageService';
+import { uploadDataUrlToStorage, uploadDataUrlToPublicStorage } from '../lib/storageService';
+import { tenantService } from '../services/tenantService';
 import { getSupabaseClient } from '../lib/supabase';
 import {
   Tenant,
@@ -1783,6 +1784,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     logAction('TENANT_INFO_UPDATED', 'Configurações', `Dados da clínica atualizados: ${Object.keys(changes).join(', ')}`);
+
+    if (authTenant && getSupabaseClient()) {
+      (async () => {
+        try {
+          let changesToSave = changes;
+          if (changes.logoUrl?.startsWith('data:')) {
+            const url = await uploadDataUrlToPublicStorage(`${authTenant.id}/logo-${Date.now()}.png`, changes.logoUrl);
+            changesToSave = { ...changes, logoUrl: url };
+            // A tela já usa o base64 pra pré-visualização instantânea; assim que o upload termina, troca pela URL definitiva do Storage.
+            setActiveTenantState((prev) => ({ ...prev, logoUrl: url }));
+            setTenants((prev) => prev.map((t) => (t.id === authTenant.id ? { ...t, logoUrl: url } : t)));
+          }
+          await tenantService.update(authTenant.id, changesToSave);
+        } catch (err: any) {
+          console.error('Erro ao salvar dados da clínica no Supabase:', err);
+          logAction('TENANT_SYNC_ERROR', 'Configurações', `Falha ao sincronizar dados da clínica: ${err.message}`);
+        }
+      })();
+    }
   };
 
   const updateRolePermissions = (role: UserRole, permissions: Partial<RoleMenuPermissions>) => {
