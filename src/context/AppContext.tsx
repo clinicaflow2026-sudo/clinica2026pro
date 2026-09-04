@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { patientService } from '../services/patientService';
+import { appointmentService } from '../services/appointmentService';
 import { getSupabaseClient } from '../lib/supabase';
 import {
   Tenant,
@@ -427,6 +428,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_APPOINTMENTS;
   });
 
+  // Fase 4 (Agenda): mesmo padrão dos Pacientes — com sessão real, os
+  // agendamentos passam a vir do Supabase.
+  useEffect(() => {
+    if (!authTenant || !getSupabaseClient()) return;
+    let active = true;
+    appointmentService
+      .list(authTenant.id)
+      .then((remote) => {
+        if (active) setAppointments(remote);
+      })
+      .catch((err) => console.error('Erro ao carregar agendamentos do Supabase:', err));
+    return () => {
+      active = false;
+    };
+  }, [authTenant?.id]);
+
   const [evaluations, setEvaluations] = useState<PhysicalEvaluation[]>(() => {
     const saved = localStorage.getItem('cfp_evaluations');
     return saved ? JSON.parse(saved) : INITIAL_PHYSICAL_EVALUATIONS;
@@ -773,9 +790,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message: check.message };
     }
 
+    const tempId = `apt-${Date.now()}`;
     const newApt: Appointment = {
       ...aptData,
-      id: `apt-${Date.now()}`,
+      id: tempId,
       tenantId: activeTenant.id,
       syncedWithGoogle: true,
       whatsappReminderSent: false,
@@ -783,10 +801,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setAppointments((prev) => [newApt, ...prev]);
 
-    // If price > 0, also create a financial entry
+    // If price > 0, also create a financial entry (permanece local — o
+    // módulo Financeiro ainda não foi migrado nesta fase).
+    let tempFinId: string | null = null;
     if (newApt.price && newApt.price > 0) {
+      tempFinId = `fin-${Date.now()}`;
       const newFinEntry: FinancialEntry = {
-        id: `fin-${Date.now()}`,
+        id: tempFinId,
         tenantId: activeTenant.id,
         type: 'income',
         description: `Sessão: ${newApt.procedureName} - ${newApt.patientName}`,
@@ -812,17 +833,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     logAction('APPOINTMENT_CREATED', 'Agendamentos', `Novo agendamento: ${newApt.patientName} com ${newApt.professionalName} em ${newApt.date} ${newApt.startTime}`);
+
+    if (authTenant && getSupabaseClient()) {
+      appointmentService
+        .create(authTenant.id, aptData)
+        .then((saved) => {
+          setAppointments((prev) => prev.map((a) => (a.id === tempId ? saved : a)));
+          if (tempFinId) {
+            setFinancialEntries((prev) => prev.map((f) => (f.id === tempFinId ? { ...f, appointmentId: saved.id } : f)));
+          }
+        })
+        .catch((err) => {
+          console.error('Erro ao salvar agendamento no Supabase:', err);
+          setAppointments((prev) => prev.filter((a) => a.id !== tempId));
+          if (tempFinId) setFinancialEntries((prev) => prev.filter((f) => f.id !== tempFinId));
+          logAction(
+            'APPOINTMENT_SYNC_ERROR',
+            'Agendamentos',
+            `Falha ao sincronizar agendamento de ${newApt.patientName}: ${err.message} — o horário foi removido da tela, pode haver conflito real com outro agendamento.`
+          );
+        });
+    }
+
     return { success: true, appointment: newApt };
   };
 
   const updateAppointment = (id: string, data: Partial<Appointment>) => {
     setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, ...data } : a)));
     logAction('APPOINTMENT_UPDATED', 'Agendamentos', `Atualizou agendamento ID ${id}`);
+
+    if (authTenant && getSupabaseClient() && !id.startsWith('apt-')) {
+      appointmentService.update(id, data).catch((err) => {
+        console.error('Erro ao atualizar agendamento no Supabase:', err);
+        logAction('APPOINTMENT_SYNC_ERROR', 'Agendamentos', `Falha ao sincronizar atualização do agendamento ID ${id}: ${err.message}`);
+      });
+    }
   };
 
   const deleteAppointment = (id: string) => {
     setAppointments((prev) => prev.filter((a) => a.id !== id));
     logAction('APPOINTMENT_DELETED', 'Agendamentos', `Cancelou/removeu agendamento ID ${id}`);
+
+    if (authTenant && getSupabaseClient() && !id.startsWith('apt-')) {
+      appointmentService.remove(id, { hard: true }).catch((err) => {
+        console.error('Erro ao remover agendamento no Supabase:', err);
+        logAction('APPOINTMENT_SYNC_ERROR', 'Agendamentos', `Falha ao sincronizar exclusão do agendamento ID ${id}: ${err.message}`);
+      });
+    }
   };
 
   // Clinical Actions
