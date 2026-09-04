@@ -1,6 +1,9 @@
 import React from 'react';
 import { AppProvider, useApp } from './context/AppContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { LoginScreen } from './components/auth/LoginScreen';
+import { Loader2 } from 'lucide-react';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar } from './components/layout/Sidebar';
 import { FooterBar } from './components/layout/FooterBar';
@@ -26,6 +29,7 @@ import { Keyboard } from 'lucide-react';
 
 const AppContent: React.FC = () => {
   const { currentView, setShowLicenseModal, sendMessage } = useApp();
+  const { session, loading } = useAuth();
   const {
     showShortcutsModal,
     setShowShortcutsModal,
@@ -46,12 +50,28 @@ const AppContent: React.FC = () => {
   }
 
   if (currentView === 'patient_portal') {
+    // NOTA (Fase 2): o Portal do Paciente ainda não tem autenticação própria
+    // de paciente — isso fica para uma fase futura (auth por paciente +
+    // policy de RLS restringindo cada paciente aos próprios dados).
     return (
       <div className="relative">
         <PatientPortal />
         <PwaInstallPrompt />
       </div>
     );
+  }
+
+  // A partir daqui é a área interna (staff da clínica) — exige login real.
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <Loader2 className="w-6 h-6 animate-spin text-teal-600" />
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <LoginScreen />;
   }
 
   // Standard SaaS Application Layout
@@ -126,10 +146,12 @@ const AppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <AppProvider>
-      <ThemeProvider>
-        <AppContent />
-      </ThemeProvider>
-    </AppProvider>
+    <AuthProvider>
+      <AppProvider>
+        <ThemeProvider>
+          <AppContent />
+        </ThemeProvider>
+      </AppProvider>
+    </AuthProvider>
   );
 }

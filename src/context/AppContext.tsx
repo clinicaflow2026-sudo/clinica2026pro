@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useAuth } from './AuthContext';
 import {
   Tenant,
   UserProfile,
@@ -348,6 +349,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const found = INITIAL_USERS.find((u) => u.id === saved);
     return found || INITIAL_USERS[1]; // default to Dra. Helena (Admin)
   });
+
+  // Fase 2: assim que o login real acontece, o perfil/tenant vindos do
+  // Supabase substituem os dados mock acima. Enquanto isso não acontece
+  // (usuário deslogado, ou tela pública), o app segue com os dados locais
+  // como já funcionava antes — nada foi removido, só complementado.
+  const { authProfile, authTenant } = useAuth();
+  useEffect(() => {
+    if (authTenant) {
+      setActiveTenantState(authTenant);
+      setTenants((prev) => {
+        const exists = prev.some((t) => t.id === authTenant.id);
+        return exists ? prev.map((t) => (t.id === authTenant.id ? authTenant : t)) : [authTenant, ...prev];
+      });
+    }
+    if (authProfile) {
+      setCurrentUser(authProfile);
+      setUsers((prev) => {
+        const exists = prev.some((u) => u.id === authProfile.id);
+        return exists ? prev.map((u) => (u.id === authProfile.id ? authProfile : u)) : [authProfile, ...prev];
+      });
+    }
+  }, [authTenant, authProfile]);
 
   // Collections
   const [specialties, setSpecialties] = useState<Specialty[]>(() => {

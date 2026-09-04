@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp, AppView } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { ClinicLogo } from '../common/ClinicLogo';
 import {
@@ -53,6 +54,7 @@ export const Sidebar: React.FC = () => {
     setShowLicenseModal,
   } = useApp();
   const { primaryColor } = useTheme();
+  const { signOut } = useAuth();
 
   const [showTenantMenu, setShowTenantMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -340,6 +342,16 @@ export const Sidebar: React.FC = () => {
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
                   Ver Landing Page Comercial
+                </button>
+                <button
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    signOut();
+                  }}
+                  className="w-full text-left px-2 py-1 text-xs text-red-400 hover:bg-red-950/40 rounded-lg flex items-center gap-1.5 font-medium"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  Sair
                 </button>
               </div>
             </div>
