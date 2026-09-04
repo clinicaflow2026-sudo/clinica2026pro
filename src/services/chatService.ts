@@ -1,6 +1,6 @@
 import { getSupabaseClient } from '../lib/supabase';
 import { toCamel, toCamelList, toSnake } from '../lib/caseConvert';
-import type { InternalMessage } from '../types';
+import type { InternalMessage, ChatSettings } from '../types';
 
 function client() {
   const supabase = getSupabaseClient();
@@ -79,5 +79,27 @@ export const chatService = {
     return () => {
       supabase.removeChannel(channel);
     };
+  },
+
+  async getSettings(tenantId: string): Promise<ChatSettings | null> {
+    const { data, error } = await client().from('chat_settings').select('*').eq('tenant_id', tenantId).maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    const mapped = toCamel<any>(data)!;
+    delete mapped.tenantId;
+    delete mapped.updatedAt;
+    return mapped as ChatSettings;
+  },
+
+  async upsertSettings(tenantId: string, settings: Partial<ChatSettings>): Promise<ChatSettings> {
+    const row = toSnake(settings as Record<string, any>);
+    row.tenant_id = tenantId;
+    row.updated_at = new Date().toISOString();
+    const { data, error } = await client().from('chat_settings').upsert(row, { onConflict: 'tenant_id' }).select().single();
+    if (error) throw error;
+    const mapped = toCamel<any>(data)!;
+    delete mapped.tenantId;
+    delete mapped.updatedAt;
+    return mapped as ChatSettings;
   },
 };

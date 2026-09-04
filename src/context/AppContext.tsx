@@ -5,6 +5,8 @@ import { appointmentService } from '../services/appointmentService';
 import { financialService } from '../services/financialService';
 import { cadastrosService, getCadastroService } from '../services/cadastrosService';
 import { medicalRecordService } from '../services/medicalRecordService';
+import { roomService } from '../services/roomService';
+import { chatService } from '../services/chatService';
 import { getSupabaseClient } from '../lib/supabase';
 import {
   Tenant,
@@ -394,6 +396,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_ROOMS;
   });
 
+  // Fase 4/5 (Salas): carga inicial do Supabase + tempo real — qualquer
+  // mudança de status/ocupação feita em outra tela/dispositivo aparece
+  // aqui sozinha, sem precisar de F5.
+  useEffect(() => {
+    if (!authTenant || !getSupabaseClient()) return;
+    let active = true;
+    roomService
+      .list(authTenant.id)
+      .then((remote) => {
+        if (active) setRooms(remote);
+      })
+      .catch((err) => console.error('Erro ao carregar salas do Supabase:', err));
+
+    const unsubscribe = roomService.subscribeToRooms(authTenant.id, (updatedRoom) => {
+      setRooms((prev) => {
+        const exists = prev.some((r) => r.id === updatedRoom.id);
+        return exists ? prev.map((r) => (r.id === updatedRoom.id ? updatedRoom : r)) : [...prev, updatedRoom];
+      });
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [authTenant?.id]);
+
   const [procedures, setProcedures] = useState<Procedure[]>(() => {
     const saved = localStorage.getItem('cfp_procedures');
     return saved ? JSON.parse(saved) : INITIAL_PROCEDURES;
@@ -639,6 +667,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem('cfp_messages');
     return saved ? JSON.parse(saved) : INITIAL_MESSAGES;
   });
+
+  // Fase 4/5 (Chat): carga inicial + tempo real. Mensagens novas de
+  // qualquer usuário do tenant chegam na hora em todas as telas abertas.
+  useEffect(() => {
+    if (!authTenant || !getSupabaseClient()) return;
+    let active = true;
+    chatService
+      .listRecent(authTenant.id)
+      .then((remote) => {
+        if (active) setMessages(remote);
+      })
+      .catch((err) => console.error('Erro ao carregar mensagens do Supabase:', err));
+
+    chatService
+      .getSettings(authTenant.id)
+      .then((remoteSettings) => {
+        if (active && remoteSettings) setChatSettings((prev) => ({ ...prev, ...remoteSettings }));
+      })
+      .catch((err) => console.error('Erro ao carregar configurações de chat do Supabase:', err));
+
+    const unsubscribe = chatService.subscribeToMessages(authTenant.id, (newMessage) => {
+      setMessages((prev) => (prev.some((m) => m.id === newMessage.id) ? prev : [...prev, newMessage]));
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [authTenant?.id]);
 
   const [chatSettings, setChatSettings] = useState<ChatSettings>(() => {
     try {
@@ -1443,6 +1500,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateChatSettings = (newSettings: Partial<ChatSettings>) => {
     setChatSettings((prev) => ({ ...(prev || DEFAULT_CHAT_SETTINGS), ...newSettings }));
     logAction('CHAT_SETTINGS_UPDATED', 'Mensagens Internas', 'Configurações de mensagens internas atualizadas');
+
+    if (authTenant && getSupabaseClient()) {
+      chatService.upsertSettings(authTenant.id, newSettings).catch((err) => {
+        console.error('Erro ao salvar configurações de chat no Supabase:', err);
+        logAction('CHAT_SYNC_ERROR', 'Mensagens Internas', `Falha ao sincronizar configurações de chat: ${err.message}`);
+      });
+    }
   };
 
   const sendMessage = (
@@ -1477,9 +1541,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       patientName: options?.patientName,
       attachment: options?.attachment,
     };
+    const tempId = newMsg.id;
 
     setMessages((prev) => [...prev, newMsg]);
     logAction('MESSAGE_SENT', 'Mensagens Internas', `Mensagem enviada para ${recipientId} (${options?.category || 'geral'})`);
+
+    if (authTenant && getSupabaseClient() && newMsg.tenantId) {
+      chatService
+        .send(newMsg.tenantId, newMsg)
+        .then((saved) => setMessages((prev) => prev.map((m) => (m.id === tempId ? saved : m))))
+        .catch((err) => {
+          console.error('Erro ao enviar mensagem no Supabase:', err);
+          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+          logAction('CHAT_SYNC_ERROR', 'Mensagens Internas', `Falha ao sincronizar mensagem: ${err.message}`);
+        });
+    }
 
     // Audio Chime if enabled
     if (chatSettings?.soundEnabled) {
@@ -1502,6 +1578,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const markMessageAsRead = (messageId: string) => {
     setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, read: true } : m)));
+
+    if (authTenant && getSupabaseClient() && !messageId.startsWith('msg-')) {
+      chatService.markAsRead(messageId).catch((err) => {
+        console.error('Erro ao marcar mensagem como lida no Supabase:', err);
+      });
+    }
   };
 
   const markAllMessagesAsRead = (recipientId: string) => {
@@ -1803,6 +1885,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       reserved: 'Reservada',
     };
     logAction('ROOM_STATUS_CHANGED', 'Gestão de Salas', `${roomName} alterada para status "${statusLabels[status]}"`);
+
+    if (authTenant && getSupabaseClient() && !roomId.startsWith('room-')) {
+      roomService.update(roomId, {
+        status,
+        inMaintenance: status === 'maintenance',
+        maintenanceNote,
+        currentOccupant: status === 'available' || status === 'cleaning' || status === 'maintenance' ? null : undefined,
+      } as any).catch((err) => {
+        console.error('Erro ao atualizar status da sala no Supabase:', err);
+        logAction('ROOM_SYNC_ERROR', 'Gestão de Salas', `Falha ao sincronizar status de ${roomName}: ${err.message}`);
+      });
+    }
   };
 
   const startRoomSession = (roomId: string, occupant: RoomOccupantInfo) => {
@@ -1822,6 +1916,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     const targetRoom = rooms.find((r) => r.id === roomId);
     logAction('ROOM_SESSION_STARTED', 'Gestão de Salas', `Atendimento iniciado em ${targetRoom?.name || 'Sala'}: ${occupant.patientName || 'Paciente'} com ${occupant.professionalName || 'Terapeuta'}`);
+
+    if (authTenant && getSupabaseClient() && !roomId.startsWith('room-')) {
+      roomService.update(roomId, {
+        status: 'in_use',
+        inMaintenance: false,
+        currentOccupant: { ...occupant, startedAt: occupant.startedAt || new Date().toISOString() },
+      } as any).catch((err) => {
+        console.error('Erro ao iniciar atendimento na sala no Supabase:', err);
+        logAction('ROOM_SYNC_ERROR', 'Gestão de Salas', `Falha ao sincronizar início de atendimento em ${targetRoom?.name}: ${err.message}`);
+      });
+    }
   };
 
   const freeRoom = (roomId: string, notifyReception = true) => {
@@ -1841,6 +1946,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     logAction('ROOM_FREED', 'Gestão de Salas', `${targetRoom?.name || 'Sala'} liberada`);
+
+    if (authTenant && getSupabaseClient() && !roomId.startsWith('room-')) {
+      roomService.release(roomId).catch((err) => {
+        console.error('Erro ao liberar sala no Supabase:', err);
+        logAction('ROOM_SYNC_ERROR', 'Gestão de Salas', `Falha ao sincronizar liberação de ${targetRoom?.name}: ${err.message}`);
+      });
+    }
 
     if (notifyReception && targetRoom) {
       sendMessage(
