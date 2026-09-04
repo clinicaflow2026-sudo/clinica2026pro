@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
+import { patientService } from '../services/patientService';
+import { getSupabaseClient } from '../lib/supabase';
 import {
   Tenant,
   UserProfile,
@@ -403,6 +405,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_PATIENTS;
   });
 
+  // Fase 4 (Pacientes): com sessão real ativa, os pacientes passam a vir do
+  // Supabase em vez do mock local. Sem sessão (app público/demo), continua
+  // tudo como antes — nada quebra pra quem ainda não logou.
+  useEffect(() => {
+    if (!authTenant || !getSupabaseClient()) return;
+    let active = true;
+    patientService
+      .list(authTenant.id)
+      .then((remote) => {
+        if (active) setPatients(remote);
+      })
+      .catch((err) => console.error('Erro ao carregar pacientes do Supabase:', err));
+    return () => {
+      active = false;
+    };
+  }, [authTenant?.id]);
+
   const [appointments, setAppointments] = useState<Appointment[]>(() => {
     const saved = localStorage.getItem('cfp_appointments');
     return saved ? JSON.parse(saved) : INITIAL_APPOINTMENTS;
@@ -684,21 +703,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message: check.message };
     }
 
+    const tempId = `patient-${Date.now()}`;
     const newPatient: Patient = {
       ...patientData,
-      id: `patient-${Date.now()}`,
+      id: tempId,
       tenantId: activeTenant.id,
       createdAt: new Date().toISOString(),
     };
 
+    // Otimista: aparece na tela na hora. Se houver sessão real, persiste no
+    // Supabase em seguida e troca o id temporário pelo id real do banco.
     setPatients((prev) => [newPatient, ...prev]);
     logAction('PATIENT_CREATED', 'Pacientes', `Cadastrou paciente ${newPatient.name}`);
+
+    if (authTenant && getSupabaseClient()) {
+      patientService
+        .create(authTenant.id, patientData)
+        .then((saved) => {
+          setPatients((prev) => prev.map((p) => (p.id === tempId ? saved : p)));
+        })
+        .catch((err) => {
+          console.error('Erro ao salvar paciente no Supabase:', err);
+          setPatients((prev) => prev.filter((p) => p.id !== tempId));
+          logAction('PATIENT_SYNC_ERROR', 'Pacientes', `Falha ao sincronizar paciente ${newPatient.name}: ${err.message}`);
+        });
+    }
+
     return { success: true, patient: newPatient };
   };
 
   const updatePatient = (id: string, data: Partial<Patient>) => {
     setPatients((prev) => prev.map((p) => (p.id === id ? { ...p, ...data } : p)));
     logAction('PATIENT_UPDATED', 'Pacientes', `Atualizou dados do paciente ID ${id}`);
+
+    // Só tenta persistir se o id já é um UUID real do banco (não um id
+    // temporário aguardando a confirmação do addPatient acima).
+    if (authTenant && getSupabaseClient() && !id.startsWith('patient-')) {
+      patientService
+        .update(id, data)
+        .catch((err) => {
+          console.error('Erro ao atualizar paciente no Supabase:', err);
+          logAction('PATIENT_SYNC_ERROR', 'Pacientes', `Falha ao sincronizar atualização do paciente ID ${id}: ${err.message}`);
+        });
+    }
   };
 
   const deletePatient = (id: string, hard = false) => {
@@ -708,6 +755,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setPatients((prev) => prev.map((p) => (p.id === id ? { ...p, deletedAt: new Date().toISOString() } : p)));
     }
     logAction('PATIENT_DELETED', 'Pacientes', `Excluiu paciente ID ${id} (${hard ? 'Definitivo' : 'Soft Delete'})`);
+
+    if (authTenant && getSupabaseClient() && !id.startsWith('patient-')) {
+      patientService
+        .remove(id, { hard })
+        .catch((err) => {
+          console.error('Erro ao remover paciente no Supabase:', err);
+          logAction('PATIENT_SYNC_ERROR', 'Pacientes', `Falha ao sincronizar exclusão do paciente ID ${id}: ${err.message}`);
+        });
+    }
   };
 
   // Appointment Actions
