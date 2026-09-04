@@ -4,6 +4,7 @@ import { patientService } from '../services/patientService';
 import { appointmentService } from '../services/appointmentService';
 import { financialService } from '../services/financialService';
 import { cadastrosService, getCadastroService } from '../services/cadastrosService';
+import { medicalRecordService } from '../services/medicalRecordService';
 import { getSupabaseClient } from '../lib/supabase';
 import {
   Tenant,
@@ -465,6 +466,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem('cfp_consent_terms');
     return saved ? JSON.parse(saved) : INITIAL_CONSENT_TERMS;
   });
+
+  // Fase 4 (Prontuário): mesmo padrão dos módulos anteriores.
+  useEffect(() => {
+    if (!authTenant || !getSupabaseClient()) return;
+    let active = true;
+    Promise.all([
+      medicalRecordService.listEvaluations(authTenant.id),
+      medicalRecordService.listEvolutions(authTenant.id),
+      medicalRecordService.listPrescriptions(authTenant.id),
+      medicalRecordService.listConsentTerms(authTenant.id),
+    ])
+      .then(([remoteEvaluations, remoteEvolutions, remotePrescriptions, remoteConsentTerms]) => {
+        if (!active) return;
+        setEvaluations(remoteEvaluations);
+        setEvolutions(remoteEvolutions);
+        setPrescriptions(remotePrescriptions);
+        setConsentTerms(remoteConsentTerms);
+      })
+      .catch((err) => console.error('Erro ao carregar prontuário do Supabase:', err));
+    return () => {
+      active = false;
+    };
+  }, [authTenant?.id]);
 
   const [packages, setPackages] = useState<Package[]>(() => {
     const saved = localStorage.getItem('cfp_packages');
@@ -966,57 +990,119 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Clinical Actions
   const addEvolution = (evoData: Omit<Evolution, 'id' | 'tenantId' | 'createdAt'>) => {
+    const tempId = `evo-${Date.now()}`;
     const newEvo: Evolution = {
       ...evoData,
-      id: `evo-${Date.now()}`,
+      id: tempId,
       tenantId: activeTenant.id,
       createdAt: new Date().toISOString(),
     };
     setEvolutions((prev) => [newEvo, ...prev]);
     logAction('EVOLUTION_CREATED', 'Prontuário Eletrônico', `Evolução clínica assinada para paciente ID ${evoData.patientId}`);
+
+    if (authTenant && getSupabaseClient()) {
+      medicalRecordService
+        .createEvolution(authTenant.id, evoData)
+        .then((saved) => setEvolutions((prev) => prev.map((e) => (e.id === tempId ? saved : e))))
+        .catch((err) => {
+          console.error('Erro ao salvar evolução no Supabase:', err);
+          setEvolutions((prev) => prev.filter((e) => e.id !== tempId));
+          logAction('MEDICAL_RECORD_SYNC_ERROR', 'Prontuário Eletrônico', `Falha ao sincronizar evolução: ${err.message}`);
+        });
+    }
   };
 
   const addEvaluation = (evalData: Omit<PhysicalEvaluation, 'id' | 'tenantId' | 'createdAt'>) => {
+    const tempId = `eval-${Date.now()}`;
     const newEval: PhysicalEvaluation = {
       ...evalData,
-      id: `eval-${Date.now()}`,
+      id: tempId,
       tenantId: activeTenant.id,
       createdAt: new Date().toISOString(),
     };
     setEvaluations((prev) => [newEval, ...prev]);
     logAction('EVALUATION_CREATED', 'Prontuário Eletrônico', `Avaliação física salva (${evalData.category})`);
+
+    if (authTenant && getSupabaseClient()) {
+      medicalRecordService
+        .createEvaluation(authTenant.id, evalData)
+        .then((saved) => setEvaluations((prev) => prev.map((e) => (e.id === tempId ? saved : e))))
+        .catch((err) => {
+          console.error('Erro ao salvar avaliação no Supabase:', err);
+          setEvaluations((prev) => prev.filter((e) => e.id !== tempId));
+          logAction('MEDICAL_RECORD_SYNC_ERROR', 'Prontuário Eletrônico', `Falha ao sincronizar avaliação: ${err.message}`);
+        });
+    }
   };
 
   const addPrescription = (prescData: Omit<Prescription, 'id' | 'tenantId' | 'createdAt'>) => {
+    const tempId = `presc-${Date.now()}`;
     const newPresc: Prescription = {
       ...prescData,
-      id: `presc-${Date.now()}`,
+      id: tempId,
       tenantId: activeTenant.id,
       createdAt: new Date().toISOString(),
     };
     setPrescriptions((prev) => [newPresc, ...prev]);
     logAction('PRESCRIPTION_CREATED', 'Receituário', `Prescrição emitida para ${prescData.patientName}`);
+
+    if (authTenant && getSupabaseClient()) {
+      medicalRecordService
+        .createPrescription(authTenant.id, prescData)
+        .then((saved) => setPrescriptions((prev) => prev.map((p) => (p.id === tempId ? saved : p))))
+        .catch((err) => {
+          console.error('Erro ao salvar prescrição no Supabase:', err);
+          setPrescriptions((prev) => prev.filter((p) => p.id !== tempId));
+          logAction('MEDICAL_RECORD_SYNC_ERROR', 'Receituário', `Falha ao sincronizar prescrição: ${err.message}`);
+        });
+    }
   };
 
   const addConsentTerm = (termData: Omit<PatientConsentTerm, 'id' | 'tenantId' | 'createdAt'>) => {
+    const tempId = `tcle-${Date.now()}`;
     const newTerm: PatientConsentTerm = {
       ...termData,
-      id: `tcle-${Date.now()}`,
+      id: tempId,
       tenantId: activeTenant.id,
       createdAt: new Date().toISOString(),
     };
     setConsentTerms((prev) => [newTerm, ...prev]);
     logAction('CONSENT_TERM_SIGNED', 'Prontuário / TCLE', `Termo de Consentimento assinado digitalmente por ${termData.patientName} (${termData.title})`);
+
+    if (authTenant && getSupabaseClient()) {
+      medicalRecordService
+        .createConsentTerm(authTenant.id, termData)
+        .then((saved) => setConsentTerms((prev) => prev.map((t) => (t.id === tempId ? saved : t))))
+        .catch((err) => {
+          console.error('Erro ao salvar termo de consentimento no Supabase:', err);
+          setConsentTerms((prev) => prev.filter((t) => t.id !== tempId));
+          logAction('MEDICAL_RECORD_SYNC_ERROR', 'Prontuário / TCLE', `Falha ao sincronizar termo de consentimento: ${err.message}`);
+        });
+    }
   };
 
   const updateConsentTerm = (id: string, data: Partial<PatientConsentTerm>) => {
     setConsentTerms((prev) => prev.map((t) => (t.id === id ? { ...t, ...data } : t)));
     logAction('CONSENT_TERM_UPDATED', 'Prontuário / TCLE', `Termo de Consentimento ID ${id} atualizado`);
+
+    if (authTenant && getSupabaseClient() && !id.startsWith('tcle-')) {
+      medicalRecordService.updateConsentTerm(id, data).catch((err) => {
+        console.error('Erro ao atualizar termo de consentimento no Supabase:', err);
+        logAction('MEDICAL_RECORD_SYNC_ERROR', 'Prontuário / TCLE', `Falha ao sincronizar atualização do termo ID ${id}: ${err.message}`);
+      });
+    }
   };
 
   const deleteConsentTerm = (id: string) => {
     setConsentTerms((prev) => prev.filter((t) => t.id !== id));
     logAction('CONSENT_TERM_DELETED', 'Prontuário / TCLE', `Termo de Consentimento ID ${id} excluído`);
+
+    if (authTenant && getSupabaseClient() && !id.startsWith('tcle-')) {
+      medicalRecordService.removeConsentTerm(id, { hard: true }).catch((err) => {
+        console.error('Erro ao remover termo de consentimento no Supabase:', err);
+        logAction('MEDICAL_RECORD_SYNC_ERROR', 'Prontuário / TCLE', `Falha ao sincronizar exclusão do termo ID ${id}: ${err.message}`);
+      });
+    }
   };
 
   const revokeConsentTerm = (id: string, reason = 'Revogado a pedido do paciente') => {
@@ -1033,6 +1119,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       )
     );
     logAction('CONSENT_TERM_REVOKED', 'Prontuário / TCLE', `Termo de Consentimento ID ${id} revogado: ${reason}`);
+
+    if (authTenant && getSupabaseClient() && !id.startsWith('tcle-')) {
+      medicalRecordService.updateConsentTerm(id, { status: 'revoked', revokedAt: new Date().toISOString(), revokeReason: reason }).catch((err) => {
+        console.error('Erro ao revogar termo de consentimento no Supabase:', err);
+        logAction('MEDICAL_RECORD_SYNC_ERROR', 'Prontuário / TCLE', `Falha ao sincronizar revogação do termo ID ${id}: ${err.message}`);
+      });
+    }
   };
 
   // Financial Actions

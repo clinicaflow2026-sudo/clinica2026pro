@@ -44,6 +44,8 @@ export const medicalRecordService = {
 
   // Termos de consentimento (TCLE / LGPD)
   listConsentTerms: (tenantId: string) => consentTermsCrud.list(tenantId, { orderBy: 'created_at', ascending: false }),
+  createConsentTerm: consentTermsCrud.create, // usa quando o hash já vem pronto do front (ver ConsentTermSignModal)
+  updateConsentTerm: consentTermsCrud.update,
   removeConsentTerm: consentTermsCrud.remove,
 
   async consentTermsByPatient(tenantId: string, patientId: string): Promise<PatientConsentTerm[]> {
