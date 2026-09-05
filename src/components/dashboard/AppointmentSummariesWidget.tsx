@@ -25,28 +25,36 @@ export const AppointmentSummariesWidget: React.FC = () => {
   // Filter today's appointments
   const todayAppointments = appointments.filter((a) => a.date === todayStr && !a.deletedAt);
 
+  /**
+   * "Em atendimento" não é um status de agendamento (o modelo real só tem
+   * confirmed/pending/canceled/completed) — é derivado de qual sala está
+   * ocupada por aquele paciente agora, cruzando com o mapa de Salas.
+   */
+  const isInService = (apt: Appointment) => rooms.some((r) => r.status === 'in_use' && r.currentOccupant?.patientId === apt.patientId);
+
   const confirmedCount = todayAppointments.filter((a) => a.status === 'confirmed').length;
-  const inServiceCount = todayAppointments.filter((a) => a.status === 'in_service').length;
-  const pendingCount = todayAppointments.filter((a) => a.status === 'scheduled').length;
+  const inServiceCount = todayAppointments.filter(isInService).length;
+  const pendingCount = todayAppointments.filter((a) => a.status === 'pending').length;
   const completedCount = todayAppointments.filter((a) => a.status === 'completed').length;
 
   const filteredAppointments = todayAppointments.filter((a) => {
     if (statusFilter === 'all') return true;
     if (statusFilter === 'confirmed') return a.status === 'confirmed';
-    if (statusFilter === 'pending') return a.status === 'scheduled';
-    if (statusFilter === 'in_service') return a.status === 'in_service';
+    if (statusFilter === 'pending') return a.status === 'pending';
+    if (statusFilter === 'in_service') return isInService(a);
     if (statusFilter === 'completed') return a.status === 'completed';
     return true;
   });
 
-  const getStatusBadge = (status: Appointment['status']) => {
-    switch (status) {
-      case 'in_service':
-        return {
-          label: 'Em Atendimento',
-          classes: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
-          dot: 'bg-blue-500 animate-pulse',
-        };
+  const getStatusBadge = (apt: Appointment) => {
+    if (isInService(apt)) {
+      return {
+        label: 'Em Atendimento',
+        classes: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
+        dot: 'bg-blue-500 animate-pulse',
+      };
+    }
+    switch (apt.status) {
       case 'confirmed':
         return {
           label: 'Confirmado',
@@ -59,13 +67,13 @@ export const AppointmentSummariesWidget: React.FC = () => {
           classes: 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20',
           dot: 'bg-slate-400',
         };
-      case 'scheduled':
+      case 'pending':
         return {
           label: 'Aguardando',
           classes: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
           dot: 'bg-amber-500',
         };
-      case 'cancelled':
+      case 'canceled':
         return {
           label: 'Cancelado',
           classes: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
@@ -73,7 +81,7 @@ export const AppointmentSummariesWidget: React.FC = () => {
         };
       default:
         return {
-          label: status,
+          label: apt.status,
           classes: 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20',
           dot: 'bg-slate-400',
         };
@@ -178,7 +186,7 @@ export const AppointmentSummariesWidget: React.FC = () => {
             const prof = professionals.find((pr) => pr.id === apt.professionalId);
             const proc = procedures.find((pc) => pc.id === apt.procedureId);
             const room = rooms.find((r) => r.id === apt.roomId);
-            const badge = getStatusBadge(apt.status);
+            const badge = getStatusBadge(apt);
 
             return (
               <div
@@ -228,7 +236,7 @@ export const AppointmentSummariesWidget: React.FC = () => {
 
                 {/* Right Quick Actions */}
                 <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                  {apt.status === 'scheduled' && room && (
+                  {apt.status === 'pending' && room && (
                     <button
                       onClick={() => {
                         startRoomSession(room.id, {
