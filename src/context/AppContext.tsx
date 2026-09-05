@@ -218,6 +218,7 @@ interface AppContextType {
   // Generic Cadastros CRUD
   addGenericItem: (collection: string, item: any) => void;
   inviteStaffUser: (params: { name: string; email: string; role: UserRole; professionalId?: string; patientId?: string }) => Promise<{ success: boolean; message?: string }>;
+  updateStaffUser: (id: string, changes: { name?: string; role?: UserRole; professionalId?: string; patientId?: string }) => Promise<{ success: boolean; message?: string }>;
   updateGenericItem: (collection: string, id: string, data: any) => void;
   deleteGenericItem: (collection: string, id: string, hard?: boolean) => void;
 
@@ -1418,6 +1419,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const updateStaffUser = async (
+    id: string,
+    changes: { name?: string; role?: UserRole; professionalId?: string; patientId?: string }
+  ): Promise<{ success: boolean; message?: string }> => {
+    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...changes } : u)));
+
+    if (!authTenant || !getSupabaseClient()) {
+      return { success: false, message: 'Você precisa estar logada com uma sessão real para atualizar este usuário.' };
+    }
+    try {
+      const updated = await staffService.updateStaffProfile(id, changes);
+      setUsers((prev) => prev.map((u) => (u.id === id ? updated : u)));
+      logAction('STAFF_USER_UPDATED', 'Usuários & Permissões', `Usuário ID ${id} atualizado`);
+      return { success: true };
+    } catch (err: any) {
+      console.error('Erro ao atualizar usuário:', err);
+      logAction('STAFF_USER_SYNC_ERROR', 'Usuários & Permissões', `Falha ao sincronizar atualização do usuário ID ${id}: ${err.message}`);
+      return { success: false, message: err.message || 'Erro ao atualizar usuário.' };
+    }
+  };
+
   const updateGenericItem = (collection: string, id: string, data: any) => {
     const updateFn = (arr: any[]) => arr.map((item) => (item.id === id ? { ...item, ...data } : item));
     switch (collection) {
@@ -2194,6 +2216,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         addGenericItem,
         inviteStaffUser,
+        updateStaffUser,
         updateGenericItem,
         deleteGenericItem,
 

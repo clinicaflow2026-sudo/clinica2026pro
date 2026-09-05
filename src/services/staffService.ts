@@ -38,4 +38,39 @@ export const staffService = {
       createdAt: row.created_at,
     };
   },
+
+  /**
+   * Atualiza nome/perfil/vínculo de um usuário JÁ existente. Diferente do
+   * convite, isso não passa pela Edge Function — é só um update na tabela
+   * profiles, e a RLS (tenant_isolation) já garante que só dá pra alterar
+   * alguém do próprio tenant.
+   */
+  async updateStaffProfile(
+    id: string,
+    changes: { name?: string; role?: UserRole; professionalId?: string; patientId?: string }
+  ): Promise<UserProfile> {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase não está configurado.');
+
+    const row: Record<string, any> = {};
+    if (changes.name !== undefined) row.name = changes.name;
+    if (changes.role !== undefined) row.role = changes.role;
+    if (changes.professionalId !== undefined) row.professional_id = changes.professionalId || null;
+    if (changes.patientId !== undefined) row.patient_id = changes.patientId || null;
+
+    const { data, error } = await supabase.from('profiles').update(row).eq('id', id).select().single();
+    if (error) throw error;
+
+    return {
+      id: data.id,
+      tenantId: data.tenant_id,
+      name: data.name,
+      email: data.email,
+      role: data.role,
+      status: data.status,
+      professionalId: data.professional_id ?? undefined,
+      patientId: data.patient_id ?? undefined,
+      createdAt: data.created_at,
+    };
+  },
 };

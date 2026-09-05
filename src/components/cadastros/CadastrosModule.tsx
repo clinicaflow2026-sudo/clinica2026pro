@@ -87,6 +87,7 @@ export const CadastrosModule: React.FC = () => {
     updateGenericItem,
     deleteGenericItem,
     inviteStaffUser,
+    updateStaffUser,
   } = useApp();
 
   const [activeCategory, setActiveCategory] = useState<CadastroCategory>('specialties');
@@ -208,24 +209,29 @@ export const CadastrosModule: React.FC = () => {
       }
     }
 
-    // Usuários (login real): passa pela Edge Function em vez do cadastro
-    // genérico local. Só vale para CRIAR — editar um usuário existente
-    // ainda atualiza só localmente (ver nota no formulário).
-    if (activeCategory === 'users' && !editingItem) {
+    // Usuários (login real): passa pela Edge Function (criar) ou por um
+    // update direto na tabela profiles (editar) em vez do cadastro genérico.
+    if (activeCategory === 'users') {
       if (!formData.name || !formData.email || !formData.role) {
         setFormError('Nome, e-mail e perfil são obrigatórios.');
         return;
       }
       setInviteLoading(true);
-      const result = await inviteStaffUser({
-        name: formData.name,
-        email: formData.email,
-        role: formData.role,
-        professionalId: formData.professionalId || undefined,
-      });
+      const result = editingItem
+        ? await updateStaffUser(editingItem.id, {
+            name: formData.name,
+            role: formData.role,
+            professionalId: formData.professionalId || undefined,
+          })
+        : await inviteStaffUser({
+            name: formData.name,
+            email: formData.email,
+            role: formData.role,
+            professionalId: formData.professionalId || undefined,
+          });
       setInviteLoading(false);
       if (!result.success) {
-        setFormError(result.message || 'Não foi possível convidar o usuário.');
+        setFormError(result.message || 'Não foi possível salvar o usuário.');
         return;
       }
       setShowModal(false);
@@ -524,11 +530,7 @@ export const CadastrosModule: React.FC = () => {
               {/* Specialized fields for Users (login real via Edge Function) */}
               {activeCategory === 'users' && (
                 <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-200/80">
-                  {editingItem ? (
-                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-                      Edição de usuário existente ainda é só local nesta versão — nome/perfil não são sincronizados com o login real.
-                    </p>
-                  ) : (
+                  {!editingItem && (
                     <p className="text-[11px] text-slate-500">
                       Um e-mail de convite será enviado. A pessoa define a própria senha ao aceitar.
                     </p>
