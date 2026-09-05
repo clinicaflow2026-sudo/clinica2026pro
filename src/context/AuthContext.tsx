@@ -8,6 +8,7 @@ import {
   signOut as authSignOut,
   signUpAndCreateTenant,
   fetchAuthProfile,
+  ensureProfileProvisioned,
   resetPassword,
 } from '../lib/authService';
 
@@ -38,7 +39,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   const loadProfile = useCallback(async () => {
-    const result = await fetchAuthProfile();
+    let result = await fetchAuthProfile();
+
+    if (!result) {
+      // Sem profile — pode ser um cadastro que ficou pendente de confirmação
+      // de e-mail. Tenta provisionar agora; se não houver nada pendente
+      // (conta realmente quebrada por outro motivo), não faz nada.
+      const provision = await ensureProfileProvisioned();
+      if (provision.provisioned) {
+        result = await fetchAuthProfile();
+      }
+    }
+
     if (result) {
       setAuthProfile(result.profile);
       setAuthTenant(result.tenant);
