@@ -1861,6 +1861,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     logAction('ROLE_PERMISSIONS_UPDATED', 'Controle de Acesso', `Permissões do perfil ${role} atualizadas`);
+
+    if (authTenant && getSupabaseClient()) {
+      const updatedForRole = {
+        ...((activeTenant.rolePermissions || {})[role] || DEFAULT_ROLE_PERMISSIONS[role]),
+        ...permissions,
+      };
+      const updatedRolePermissions = { ...(activeTenant.rolePermissions || {}), [role]: updatedForRole };
+      tenantService.update(authTenant.id, { rolePermissions: updatedRolePermissions }).catch((err) => {
+        console.error('Erro ao salvar permissões de perfil no Supabase:', err);
+        logAction('TENANT_SYNC_ERROR', 'Controle de Acesso', `Falha ao sincronizar permissões do perfil ${role}: ${err.message}`);
+      });
+    }
   };
 
   const resetRolePermissionsToDefault = () => {
@@ -1877,6 +1889,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updatedTenant;
     });
     logAction('ROLE_PERMISSIONS_RESET', 'Controle de Acesso', 'Permissões de todos os perfis restauradas para o padrão');
+
+    if (authTenant && getSupabaseClient()) {
+      tenantService.update(authTenant.id, { rolePermissions: DEFAULT_ROLE_PERMISSIONS }).catch((err) => {
+        console.error('Erro ao resetar permissões de perfil no Supabase:', err);
+        logAction('TENANT_SYNC_ERROR', 'Controle de Acesso', `Falha ao sincronizar reset de permissões: ${err.message}`);
+      });
+    }
   };
 
   const exportTenantDataJSON = () => {
