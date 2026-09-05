@@ -126,13 +126,21 @@ export async function signUpAndCreateTenant(params: {
   const { data, error } = await supabase.auth.signUp({
     email: params.email,
     password: params.password,
+    options: {
+      data: {
+        pending_tenant_name: params.tenantName,
+        pending_slug: params.slug,
+        pending_admin_name: params.adminName,
+      },
+    },
   });
   if (error) return { error: error.message };
 
   if (!data.session) {
-    // Confirmação de e-mail está ativa no projeto: o provisionamento roda
-    // depois, na primeira vez que ensureProfileProvisioned() for chamado
-    // (ver AuthContext, disparado após o primeiro login bem-sucedido).
+    // Confirmação de e-mail está ativa no projeto: guardamos os dados da
+    // clínica pendente no metadata do usuário (acima). O provisionamento de
+    // verdade roda em ensureProfileProvisioned(), chamado pelo AuthContext
+    // assim que a sessão existir de verdade (primeiro login pós-confirmação).
     return { needsEmailConfirmation: true };
   }
 
@@ -151,6 +159,45 @@ async function provisionTenant(tenantName: string, slug: string, adminName: stri
   });
   if (error) return error.message;
   return undefined;
+}
+
+/**
+ * Chamada toda vez que uma sessão existe mas ainda não tem profile. Se o
+ * usuário tinha um cadastro de clínica pendente (guardado no metadata no
+ * momento do signUp), provisiona agora — é o que fecha o fluxo de quem
+ * confirmou o e-mail e está fazendo o primeiro login de verdade. Se não
+ * houver metadata pendente, não faz nada (evita criar clínica por engano
+ * em qualquer outra situação de profile ausente).
+ */
+export async function ensureProfileProvisioned(): Promise<{ provisioned: boolean; error?: string }> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return { provisioned: false };
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  const user = sessionData.session?.user;
+  if (!user) return { provisioned: false };
+
+  const meta = user.user_metadata as Record<string, any> | undefined;
+  const tenantName = meta?.pending_tenant_name;
+  const slug = meta?.pending_slug;
+  const adminName = meta?.pending_admin_name;
+
+  if (!tenantName || !slug || !adminName) {
+    return { provisioned: false };
+  }
+
+  const error = await provisionTenant(tenantName, slug, adminName);
+  if (error) {
+    console.error('ensureProfileProvisioned: falha ao provisionar tenant pendente', error);
+    return { provisioned: false, error };
+  }
+
+  // Limpa o metadata pendente pra não tentar provisionar de novo em futuros logins.
+  await supabase.auth.updateUser({
+    data: { pending_tenant_name: null, pending_slug: null, pending_admin_name: null },
+  });
+
+  return { provisioned: true };
 }
 
 /**
