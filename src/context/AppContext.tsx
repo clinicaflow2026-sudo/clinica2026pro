@@ -1405,7 +1405,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     patientId?: string;
   }): Promise<{ success: boolean; message?: string }> => {
     if (!authTenant || !getSupabaseClient()) {
-      return { success: false, message: 'Você precisa estar logada com uma sessão real para convidar um usuário.' };
+      return { success: false, message: 'Não foi possível confirmar sua clínica logada (perfil não carregado). Tente sair e entrar de novo — se persistir, veja o console do navegador (F12) para mais detalhes.' };
     }
     try {
       const newProfile = await staffService.inviteStaffUser(params);
@@ -1426,7 +1426,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...changes } : u)));
 
     if (!authTenant || !getSupabaseClient()) {
-      return { success: false, message: 'Você precisa estar logada com uma sessão real para atualizar este usuário.' };
+      return { success: false, message: 'Não foi possível confirmar sua clínica logada (perfil não carregado). Tente sair e entrar de novo — se persistir, veja o console do navegador (F12) para mais detalhes.' };
     }
     try {
       const updated = await staffService.updateStaffProfile(id, changes);

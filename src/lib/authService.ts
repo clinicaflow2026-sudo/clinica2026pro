@@ -173,7 +173,10 @@ export async function fetchAuthProfile(): Promise<AuthProfile | null> {
     .eq('id', userId)
     .maybeSingle();
 
-  if (profileError || !profileRow) return null;
+  if (profileError || !profileRow) {
+    console.error('fetchAuthProfile: falha ao buscar profile', profileError?.message || 'nenhuma linha encontrada para este usuário');
+    return null;
+  }
 
   const { data: tenantRow, error: tenantError } = await supabase
     .from('tenants')
@@ -181,7 +184,10 @@ export async function fetchAuthProfile(): Promise<AuthProfile | null> {
     .eq('id', profileRow.tenant_id)
     .maybeSingle();
 
-  if (tenantError || !tenantRow) return null;
+  if (tenantError || !tenantRow) {
+    console.error('fetchAuthProfile: falha ao buscar tenant', tenantError?.message || `tenant_id ${profileRow.tenant_id} não encontrado`);
+    return null;
+  }
 
   return { profile: mapProfileRow(profileRow), tenant: mapTenantRow(tenantRow) };
 }
