@@ -2,6 +2,23 @@ import { getSupabaseClient } from '../lib/supabase';
 import type { UserProfile, UserRole } from '../types';
 
 export const staffService = {
+  async list(tenantId: string): Promise<UserProfile[]> {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase não está configurado.');
+    const { data, error } = await supabase.from('profiles').select('*').eq('tenant_id', tenantId).order('name', { ascending: true });
+    if (error) throw error;
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      tenantId: row.tenant_id,
+      name: row.name,
+      email: row.email,
+      role: row.role,
+      status: row.status,
+      professionalId: row.professional_id ?? undefined,
+      patientId: row.patient_id ?? undefined,
+      createdAt: row.created_at,
+    }));
+  },
   /**
    * Convida um funcionário de verdade: cria o login no Supabase Auth (envia
    * e-mail de convite) e o profile vinculado ao mesmo tenant de quem está

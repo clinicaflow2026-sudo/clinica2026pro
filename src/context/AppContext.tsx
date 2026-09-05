@@ -368,6 +368,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // (usuário deslogado, ou tela pública), o app segue com os dados locais
   // como já funcionava antes — nada foi removido, só complementado.
   const { authProfile, authTenant } = useAuth();
+
+  // Carrega a lista real de usuários (profiles) do tenant. Antes disso, a
+  // lista só existia otimisticamente/no localStorage, o que mascarava
+  // falhas reais de sincronização (parecia "salvo" mesmo quando não era).
+  useEffect(() => {
+    if (!authTenant || !getSupabaseClient()) return;
+    let active = true;
+    staffService
+      .list(authTenant.id)
+      .then((remote) => {
+        if (active) setUsers(remote);
+      })
+      .catch((err) => console.error('Erro ao carregar usuários do Supabase:', err));
+    return () => {
+      active = false;
+    };
+  }, [authTenant?.id]);
   useEffect(() => {
     if (authTenant) {
       setActiveTenantState(authTenant);
