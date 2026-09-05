@@ -86,6 +86,7 @@ export const CadastrosModule: React.FC = () => {
     addGenericItem,
     updateGenericItem,
     deleteGenericItem,
+    inviteStaffUser,
   } = useApp();
 
   const [activeCategory, setActiveCategory] = useState<CadastroCategory>('specialties');
@@ -183,7 +184,9 @@ export const CadastrosModule: React.FC = () => {
     setShowModal(true);
   };
 
-  const handleSaveItem = (e: React.FormEvent) => {
+  const [inviteLoading, setInviteLoading] = useState(false);
+
+  const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
 
@@ -203,6 +206,30 @@ export const CadastrosModule: React.FC = () => {
         setFormError(`CPF Inválido: ${cpfVal.message || 'Verifique o CPF do profissional.'}`);
         return;
       }
+    }
+
+    // Usuários (login real): passa pela Edge Function em vez do cadastro
+    // genérico local. Só vale para CRIAR — editar um usuário existente
+    // ainda atualiza só localmente (ver nota no formulário).
+    if (activeCategory === 'users' && !editingItem) {
+      if (!formData.name || !formData.email || !formData.role) {
+        setFormError('Nome, e-mail e perfil são obrigatórios.');
+        return;
+      }
+      setInviteLoading(true);
+      const result = await inviteStaffUser({
+        name: formData.name,
+        email: formData.email,
+        role: formData.role,
+        professionalId: formData.professionalId || undefined,
+      });
+      setInviteLoading(false);
+      if (!result.success) {
+        setFormError(result.message || 'Não foi possível convidar o usuário.');
+        return;
+      }
+      setShowModal(false);
+      return;
     }
 
     if (editingItem) {
@@ -493,6 +520,60 @@ export const CadastrosModule: React.FC = () => {
                   required
                 />
               </div>
+
+              {/* Specialized fields for Users (login real via Edge Function) */}
+              {activeCategory === 'users' && (
+                <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                  {editingItem ? (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                      Edição de usuário existente ainda é só local nesta versão — nome/perfil não são sincronizados com o login real.
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-slate-500">
+                      Um e-mail de convite será enviado. A pessoa define a própria senha ao aceitar.
+                    </p>
+                  )}
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">E-mail *</label>
+                    <input
+                      type="email"
+                      value={formData.email || ''}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
+                      required
+                      disabled={!!editingItem}
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Perfil de Acesso *</label>
+                    <select
+                      value={formData.role || 'secretary'}
+                      onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                      className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
+                      required
+                    >
+                      <option value="admin">Administrador</option>
+                      <option value="professional">Profissional</option>
+                      <option value="secretary">Secretária / Recepção</option>
+                    </select>
+                  </div>
+                  {formData.role === 'professional' && (
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Vincular a um Profissional (opcional)</label>
+                      <select
+                        value={formData.professionalId || ''}
+                        onChange={(e) => setFormData({ ...formData, professionalId: e.target.value })}
+                        className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
+                      >
+                        <option value="">Nenhum</option>
+                        {professionals.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Specialized fields for Suppliers (Fornecedores) */}
               {activeCategory === 'suppliers' && (
@@ -912,9 +993,10 @@ export const CadastrosModule: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-xs"
+                  disabled={inviteLoading}
+                  className="px-4 py-2 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-xs disabled:opacity-60"
                 >
-                  Salvar Registro
+                  {inviteLoading ? 'Enviando convite...' : 'Salvar Registro'}
                 </button>
               </div>
             </form>

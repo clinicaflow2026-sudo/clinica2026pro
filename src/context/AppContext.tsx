@@ -9,6 +9,7 @@ import { roomService } from '../services/roomService';
 import { chatService } from '../services/chatService';
 import { uploadDataUrlToStorage, uploadDataUrlToPublicStorage } from '../lib/storageService';
 import { tenantService } from '../services/tenantService';
+import { staffService } from '../services/staffService';
 import { getSupabaseClient } from '../lib/supabase';
 import {
   Tenant,
@@ -216,6 +217,7 @@ interface AppContextType {
 
   // Generic Cadastros CRUD
   addGenericItem: (collection: string, item: any) => void;
+  inviteStaffUser: (params: { name: string; email: string; role: UserRole; professionalId?: string; patientId?: string }) => Promise<{ success: boolean; message?: string }>;
   updateGenericItem: (collection: string, id: string, data: any) => void;
   deleteGenericItem: (collection: string, id: string, hard?: boolean) => void;
 
@@ -1388,6 +1390,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  /**
+   * Cria um funcionário com login REAL (Supabase Auth) via Edge Function —
+   * diferente de addGenericItem('users', ...), que só existe localmente.
+   * Requer sessão real e que o backend (Edge Function create-staff-user)
+   * já esteja implantado no Supabase.
+   */
+  const inviteStaffUser = async (params: {
+    name: string;
+    email: string;
+    role: UserRole;
+    professionalId?: string;
+    patientId?: string;
+  }): Promise<{ success: boolean; message?: string }> => {
+    if (!authTenant || !getSupabaseClient()) {
+      return { success: false, message: 'Você precisa estar logada com uma sessão real para convidar um usuário.' };
+    }
+    try {
+      const newProfile = await staffService.inviteStaffUser(params);
+      setUsers((prev) => [...prev, newProfile]);
+      logAction('STAFF_USER_INVITED', 'Usuários & Permissões', `Convite enviado para ${params.email} (${params.role})`);
+      return { success: true };
+    } catch (err: any) {
+      console.error('Erro ao convidar usuário:', err);
+      logAction('STAFF_USER_INVITE_ERROR', 'Usuários & Permissões', `Falha ao convidar ${params.email}: ${err.message}`);
+      return { success: false, message: err.message || 'Erro ao convidar usuário.' };
+    }
+  };
+
   const updateGenericItem = (collection: string, id: string, data: any) => {
     const updateFn = (arr: any[]) => arr.map((item) => (item.id === id ? { ...item, ...data } : item));
     switch (collection) {
@@ -2144,6 +2174,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteFinancialEntry,
 
         addGenericItem,
+        inviteStaffUser,
         updateGenericItem,
         deleteGenericItem,
 
