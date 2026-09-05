@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* Tailwind v4 usa prefers-color-scheme por padrão para o variant `dark:`.
+   Esta linha faz `dark:` responder à classe .dark no <html> (que o
+   ThemeContext já controla via toggleDarkMode) em vez do tema do sistema
+   operacional — sem isso, o botão de tema muda a classe mas nenhuma
+   utilidade dark: reage a ela. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --color-brand-primary: #2563eb;
   --color-brand-primary-rgb: 37, 99, 235;
